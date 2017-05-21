@@ -2,13 +2,14 @@ package main
 
 import (
   "fmt"
- // "log"
-  "gopkg.in/mgo.v2"
- // "gopkg.in/mgo.v2/bson"
-  "encoding/json"
-
-
-  "log"
+ "gopkg.in/mgo.v2"
+// "log"
+// "gopkg.in/mgo.v2/bson"
+"encoding/json"
+"github.com/gorilla/mux"
+"net/http"
+	"log"
+	"gopkg.in/mgo.v2/bson"
 )
 
 type Employee struct {
@@ -26,56 +27,55 @@ type Asset struct {
   Encrypted int `json:"encrypted"`
 }
 
-func main() {
-  session, _ := mgo.Dial("127.0.0.1")
-  defer session.Close()
-
-  session.SetMode(mgo.Monotonic, true)
-  c:= session.DB("sic").C("employees")
-
-
-  df := `
-{
-  "name": "Emp Name",
-  "phone": "5555555555",
-  "email": "email@address.com",
-  "department": "Joker",
-  "manager": "Some clueless Pleb",
-  "email_groups": [
-    "test",
-    "foo"
-    ],
-  "assetlist": {
-      "Laptop": {
-        "asset_tag": "1234",
-        "encrypted": 1
-    },
-      "Tablet": {
-        "asset_tag": "4422",
-        "encrypted": 0
-     }
-
-  }
-}`
-
-emp := Employee{}
-json.Unmarshal([]byte(df), &emp)
-fmt.Println(&emp)
-err := c.Insert(emp)
-if err != nil {
-  log.Fatal(err.Error())
+type mgoEmployee struct {
+	Name        string `bson:"name"`
+	Phone       string `bson:"phone"`
+	Email       string `bson:"email"`
+	Department  string `bson:"department"`
+	Manager     string `bson:"manager"`
+	EmailGroups []string `bson:"emailgroups"`
+	Assets      map[string]mgoAsset `bson:"assets"`
 }
 
-/*
-err := c.Find(bson.M{"name": "Emp Name"}).One(&emp)
+type mgoAsset struct {
+	Tag string `bson:"tag"`
+	Encrypted bool`bson:"encrypted"`
+}
 
-if err != nil {
-  fmt.Println("Insert")
-  log.Fatal(err)
-  }
-*/
 
-fmt.Println("Phone:" , emp.Phone)
+func mongoSetup(database string, collection string) *mgo.Collection {
+  session, err := mgo.Dial("127.0.0.1")
+	if err != nil {
+		panic(err)
+	}
+  session.SetMode(mgo.Monotonic, true)
+  c := session.DB(database).C(collection)
+  return c
+}
+
+func mgoInsert(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var emp Employee
+	json.NewDecoder(r.Body).Decode(&emp)
+	c := mongoSetup("sic", "employees")
+
+	err := c.Insert(emp)
+	if err != nil {
+		result,_ := json.Marshal("Could not insert data")
+		fmt.Fprintln(w,result)
+	}
+	var mgoEmp mgoEmployee
+	err = c.Find(bson.M{"name": &emp.Name}).One(&mgoEmp)
+	success,_ := json.Marshal(&mgoEmp)
+	w.Write(success)
+	//a,_:= json.Marshal(&emp)
+
+}
+func main() {
+	m := mux.NewRouter()
+	m.HandleFunc("/",mgoInsert).Methods("POST")
+	log.Fatal(http.ListenAndServe(":8080",m))
+
 
 
 }
